@@ -1,0 +1,223 @@
+<?xml version="1.0" encoding="UTF-8" ?>
+<!DOCTYPE mapper PUBLIC "-//mybatis.org//DTD Mapper 3.0//EN"
+        "http://mybatis.org/dtd/mybatis-3-mapper.dtd">
+<mapper namespace="com.scenic.mapper.VisitorMapper">
+
+    <!-- ==================== VisitorMapper ==================== -->
+
+    <!-- 动态插入游客 -->
+    <insert id="insert" useGeneratedKeys="true" keyProperty="id">
+        INSERT INTO visitor
+        <trim prefix="(" suffix=")" suffixOverrides=",">
+            username,
+            password,
+            <if test="nickname != null">nickname,</if>
+            <if test="phone != null">phone,</if>
+            <if test="gender != null">gender,</if>
+            <if test="age != null">age,</if>
+            <if test="avatar != null">avatar,</if>
+            <if test="email != null">email,</if>
+            created_at,
+            updated_at
+        </trim>
+        <trim prefix="VALUES (" suffix=")" suffixOverrides=",">
+            #{username},
+            #{password},
+            <if test="nickname != null">#{nickname},</if>
+            <if test="phone != null">#{phone},</if>
+            <if test="gender != null">#{gender},</if>
+            <if test="age != null">#{age},</if>
+            <if test="avatar != null">#{avatar},</if>
+            <if test="email != null">#{email},</if>
+            NOW(),
+            NOW()
+        </trim>
+    </insert>
+
+    <!-- 动态更新游客 -->
+    <update id="updateById">
+        UPDATE visitor
+        <set>
+            <if test="nickname != null">nickname = #{nickname},</if>
+            <if test="phone != null">phone = #{phone},</if>
+            <if test="email != null">email = #{email},</if>
+            <if test="gender != null">gender = #{gender},</if>
+            <if test="age != null">age = #{age},</if>
+            <if test="avatar != null">avatar = #{avatar},</if>
+            updated_at = NOW()
+        </set>
+        WHERE id = #{id}
+    </update>
+
+
+    <!-- ==================== TicketOrderMapper ==================== -->
+
+    <!-- 动态插入订单 -->
+    <insert id="insertTicketOrder" useGeneratedKeys="true" keyProperty="id">
+        INSERT INTO ticket_order
+        <trim prefix="(" suffix=")" suffixOverrides=",">
+            <if test="orderNo != null">order_no,</if>
+            <if test="visitorId != null">visitor_id,</if>
+            <if test="ticketType != null">ticket_type,</if>
+            <if test="quantity != null">quantity,</if>
+            <if test="totalPrice != null">total_price,</if>
+            <if test="visitDate != null">visit_date,</if>
+            <if test="status != null">status,</if>
+            created_at,
+            updated_at
+        </trim>
+        <trim prefix="VALUES (" suffix=")" suffixOverrides=",">
+            <if test="orderNo != null">#{orderNo},</if>
+            <if test="visitorId != null">#{visitorId},</if>
+            <if test="ticketType != null">#{ticketType},</if>
+            <if test="quantity != null">#{quantity},</if>
+            <if test="totalPrice != null">#{totalPrice},</if>
+            <if test="visitDate != null">#{visitDate},</if>
+            <if test="status != null">#{status},</if>
+            NOW(),
+            NOW()
+        </trim>
+    </insert>
+
+    <!-- 根据游客ID查询订单列表 -->
+    <select id="selectOrdersByVisitorId" resultType="com.scenic.entity.TicketOrder">
+        SELECT * FROM ticket_order
+        WHERE visitor_id = #{visitorId}
+        ORDER BY created_at DESC
+    </select>
+
+    <!-- 根据ID和游客ID查询订单 -->
+    <select id="selectOrderByIdAndVisitor" resultType="com.scenic.entity.TicketOrder">
+        SELECT * FROM ticket_order
+        WHERE id = #{id}
+          AND visitor_id = #{visitorId}
+    </select>
+
+    <!-- 动态更新订单状态 -->
+    <update id="updateOrderStatus">
+        UPDATE ticket_order
+        <set>
+            <if test="status != null">status = #{status},</if>
+            updated_at = NOW()
+        </set>
+        WHERE id = #{id}
+    </update>
+
+    <!-- 根据游客ID和状态查询订单 -->
+    <select id="selectOrdersByVisitorIdAndStatus" resultType="com.scenic.entity.TicketOrder">
+        SELECT * FROM ticket_order
+        WHERE visitor_id = #{visitorId}
+        <if test="status != null and status != ''">
+            AND status = #{status}
+        </if>
+        ORDER BY created_at DESC
+    </select>
+
+
+    <!-- ==================== TicketVisitorMapper ==================== -->
+
+    <!-- 动态插入购票人信息 -->
+    <insert id="insertTicketVisitor" useGeneratedKeys="true" keyProperty="id">
+        INSERT INTO ticket_visitor
+        <trim prefix="(" suffix=")" suffixOverrides=",">
+            <if test="orderId != null">order_id,</if>
+            <if test="name != null">name,</if>
+            <if test="phone != null">phone,</if>
+            <if test="idCard != null">id_card,</if>
+        </trim>
+        <trim prefix="VALUES (" suffix=")" suffixOverrides=",">
+            <if test="orderId != null">#{orderId},</if>
+            <if test="name != null">#{name},</if>
+            <if test="phone != null">#{phone},</if>
+            <if test="idCard != null">#{idCard},</if>
+        </trim>
+    </insert>
+
+    <!-- 根据订单ID查询购票人列表 -->
+    <select id="selectTicketVisitorsByOrderId" resultType="com.scenic.entity.TicketVisitor">
+        SELECT * FROM ticket_visitor
+        WHERE order_id = #{orderId}
+    </select>
+
+
+    <!-- ==================== VisitorRouteMapper ==================== -->
+
+    <!-- 动态插入路线 -->
+    <insert id="insertVisitorRoute" useGeneratedKeys="true" keyProperty="id">
+        INSERT INTO visitor_route
+        <trim prefix="(" suffix=")" suffixOverrides=",">
+            <if test="visitorId != null">visitor_id,</if>
+            <if test="name != null">name,</if>
+            <if test="totalTime != null">total_time,</if>
+            <if test="totalDistance != null">total_distance,</if>
+            created_at
+        </trim>
+        <trim prefix="VALUES (" suffix=")" suffixOverrides=",">
+            <if test="visitorId != null">#{visitorId},</if>
+            <if test="name != null">#{name},</if>
+            <if test="totalTime != null">#{totalTime},</if>
+            <if test="totalDistance != null">#{totalDistance},</if>
+            NOW()
+        </trim>
+    </insert>
+
+    <!-- 根据游客ID查询路线列表 -->
+    <select id="selectRoutesByVisitorId" resultType="com.scenic.entity.VisitorRoute">
+        SELECT * FROM visitor_route
+        WHERE visitor_id = #{visitorId}
+        ORDER BY created_at DESC
+    </select>
+
+    <!-- 根据ID和游客ID查询路线 -->
+    <select id="selectRouteByIdAndVisitor" resultType="com.scenic.entity.VisitorRoute">
+        SELECT * FROM visitor_route
+        WHERE id = #{id}
+          AND visitor_id = #{visitorId}
+    </select>
+
+    <!-- 根据ID和游客ID删除路线 -->
+    <delete id="deleteRouteByIdAndVisitor">
+        DELETE FROM visitor_route
+        WHERE id = #{id}
+          AND visitor_id = #{visitorId}
+    </delete>
+
+
+    <!-- ==================== RouteSpotMapper ==================== -->
+
+    <!-- 动态插入路线景点关联 -->
+    <insert id="insertRouteSpot" useGeneratedKeys="true" keyProperty="id">
+        INSERT INTO route_spot
+        <trim prefix="(" suffix=")" suffixOverrides=",">
+            <if test="routeId != null">route_id,</if>
+            <if test="spotId != null">spot_id,</if>
+            <if test="sortOrder != null">sort_order,</if>
+            <if test="stayTime != null">stay_time,</if>
+        </trim>
+        <trim prefix="VALUES (" suffix=")" suffixOverrides=",">
+            <if test="routeId != null">#{routeId},</if>
+            <if test="spotId != null">#{spotId},</if>
+            <if test="sortOrder != null">#{sortOrder},</if>
+            <if test="stayTime != null">#{stayTime},</if>
+        </trim>
+    </insert>
+
+    <!-- 根据路线ID查询景点关联列表 -->
+    <select id="selectRouteSpotsByRouteId" resultType="com.scenic.entity.RouteSpot">
+        SELECT * FROM route_spot
+        WHERE route_id = #{routeId}
+        ORDER BY sort_order
+    </select>
+
+    <!-- 根据路线ID删除所有关联 -->
+    <delete id="deleteRouteSpotsByRouteId">
+        DELETE FROM route_spot
+        WHERE route_id = #{routeId}
+    </delete>
+
+    <update id="updatePassword">
+        UPDATE visitor
+        SET password = #{password}, updated_at = NOW()
+        WHERE id = #{id}
+    </update>
+</mapper>

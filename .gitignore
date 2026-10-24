@@ -1,0 +1,55 @@
+# ============================================================
+#  智慧游客管理云平台 —— 仓库级忽略规则
+#  只影响 Git 追踪范围，不会删除任何本地文件
+# ============================================================
+
+# ---------- 操作系统 ----------
+.DS_Store
+._*
+Thumbs.db
+ehthumbs.db
+Desktop.ini
+$RECYCLE.BIN/
+
+# ---------- 编辑器 / IDE ----------
+.idea/
+.vscode/
+*.iml
+*.ipr
+*.iws
+*.swp
+*.swo
+.settings/
+.project
+.classpath
+.factorypath
+*.sublime-workspace
+
+# ---------- 环境变量与本地私有配置 ----------
+.env
+.env.local
+.env.*.local
+*-local.yml
+*-local.properties
+
+# ---------- 日志与临时文件 ----------
+*.log
+logs/
+*.tmp
+*.bak
+*.orig
+
+# ---------- 后端（Java / Maven）----------
+backend/target/
+backend/build/
+backend/out/
+backend/.mvn/wrapper/maven-wrapper.jar
+backend/HELP.md
+
+# ---------- 前端（Node / Vite）----------
+frontend/node_modules/
+frontend/dist/
+frontend/dist-ssr/
+frontend/.vite/
+frontend/coverage/
+frontend/stats.html

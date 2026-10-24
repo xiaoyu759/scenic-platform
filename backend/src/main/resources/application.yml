@@ -1,0 +1,97 @@
+# ==================== 服务器配置 ====================
+server:
+  port: 8080
+  servlet:
+    context-path: /
+
+# ==================== Spring 配置 ====================
+spring:
+  application:
+    name: scenic-platform-backend
+
+  # ---------- 数据源配置 ----------
+  datasource:
+    driver-class-name: com.mysql.cj.jdbc.Driver
+    # 生产环境请通过环境变量覆盖，不要把真实口令提交到仓库
+    url: jdbc:mysql://${DB_HOST:localhost}:${DB_PORT:3306}/${DB_NAME:scenic_platform}?useUnicode=true&characterEncoding=utf-8&useSSL=false&serverTimezone=Asia/Shanghai&allowPublicKeyRetrieval=true
+    username: ${DB_USERNAME:root}
+    password: ${DB_PASSWORD:1234}
+    hikari:
+      maximum-pool-size: 10
+      minimum-idle: 5
+      connection-timeout: 30000
+      idle-timeout: 600000
+      max-lifetime: 1800000
+
+  # ---------- Redis 配置 ----------
+  data:
+    redis:
+      host: ${REDIS_HOST:localhost}
+      port: ${REDIS_PORT:6379}
+      password: ${REDIS_PASSWORD:}
+      database: 0
+      timeout: 5000ms
+      lettuce:
+        pool:
+          max-active: 8
+          max-idle: 8
+          min-idle: 0
+          max-wait: -1ms
+
+  # ---------- Jackson 配置 ----------
+  jackson:
+    date-format: yyyy-MM-dd HH:mm:ss
+    time-zone: Asia/Shanghai
+    default-property-inclusion: non_null
+    serialization:
+      write-dates-as-timestamps: false
+
+# ==================== MyBatis 配置 ====================
+mybatis:
+  # Mapper XML 文件位置（resources/mapper 目录下）
+  mapper-locations: classpath:com.scenic.mapper/*.xml
+  # 实体类包路径
+  type-aliases-package: com.scenic.entity
+  # 配置项
+  configuration:
+    # 开启驼峰命名转换
+    map-underscore-to-camel-case: true
+    # 开启SQL日志输出
+    log-impl: org.apache.ibatis.logging.stdout.StdOutImpl
+
+# ==================== PageHelper 分页配置 ====================
+pagehelper:
+  helper-dialect: mysql
+  reasonable: true
+  support-methods-arguments: true
+  params: count=countSql
+
+# ==================== JWT 配置 ====================
+jwt:
+  # JWT 签名密钥（生产环境务必通过环境变量 JWT_SECRET 覆盖）
+  secret: ${JWT_SECRET:scenic-platform-secret-key-2026-for-jwt-encryption-must-be-long-enough}
+  # 游客Token过期时间（毫秒，默认2小时）
+  expiration: 7200000
+  # 管理员Token过期时间（毫秒，默认2小时）
+  admin-expiration: 7200000
+
+# ==================== 日志配置 ====================
+logging:
+  level:
+    com.scenic: debug
+    com.scenic.mapper: debug
+  pattern:
+    console: '%d{yyyy-MM-dd HH:mm:ss.SSS} %-5level [%thread] %logger{50} - %msg%n'
+
+# ==================== 应用自定义配置 ====================
+app:
+  # 是否启用模拟数据（开发环境启用）
+  mock-enabled: true
+  # 单笔订单最大数量
+  max-order-quantity: 10
+  # 库存预警阈值
+  ticket-stock-warning: 100
+  # 单次票价格
+  single-ticket-price: 60
+  # 套票价格
+  combo-ticket-price: 168

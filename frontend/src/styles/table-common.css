@@ -1,0 +1,183 @@
+/* 现代化表格样式 - 无斑马纹，流畅动画 */
+
+/* 表格容器 */
+.modern-table {
+  background: rgba(15, 21, 53, 0.6);
+  border-radius: 16px;
+  overflow: hidden;
+  backdrop-filter: blur(10px);
+  transition: all 0.3s cubic-bezier(0.4, 0, 0.2, 1);
+}
+
+/* 表格基础样式 */
+.modern-table .el-table {
+  background: transparent;
+  --el-table-bg-color: transparent;
+  --el-table-tr-bg-color: transparent;
+  --el-table-header-bg-color: rgba(10, 14, 39, 0.95);
+  --el-table-row-hover-bg-color: rgba(64, 158, 255, 0.08);
+  --el-table-current-row-bg-color: rgba(64, 158, 255, 0.12);
+  --el-table-border-color: rgba(64, 158, 255, 0.1);
+  --el-table-text-color: rgba(255, 255, 255, 0.85);
+  --el-table-header-text-color: #409eff;
+}
+
+/* 表头样式 */
+.modern-table .el-table__header-wrapper th {
+  font-weight: 600;
+  font-size: 14px;
+  letter-spacing: 0.5px;
+  border-bottom: 2px solid rgba(64, 158, 255, 0.3);
+  transition: all 0.2s ease;
+}
+
+/* 表头单元格悬停效果 */
+.modern-table .el-table__header-wrapper th:hover {
+  background: rgba(64, 158, 255, 0.15);
+}
+
+/* 表格行样式 - 无斑马纹，统一背景 */
+.modern-table .el-table__body-wrapper tr {
+  transition: all 0.25s cubic-bezier(0.4, 0, 0.2, 1);
+}
+
+/* 行悬停效果 - 平滑上浮+发光 */
+.modern-table .el-table__body-wrapper tr:hover td {
+  background: rgba(64, 158, 255, 0.08) !important;
+  transform: translateX(4px);
+  transition: all 0.25s cubic-bezier(0.4, 0, 0.2, 1);
+}
+
+/* 行点击效果 */
+.modern-table .el-table__body-wrapper tr:active td {
+  background: rgba(64, 158, 255, 0.15) !important;
+  transform: scale(0.99);
+}
+
+/* 单元格样式 */
+.modern-table .el-table td {
+  border-bottom: 1px solid rgba(64, 158, 255, 0.06);
+  padding: 14px 0;
+  transition: all 0.2s ease;
+}
+
+/* 第一列特殊样式 */
+.modern-table .el-table td:first-child,
+.modern-table .el-table th:first-child {
+  padding-left: 20px;
+}
+
+/* 最后一列特殊样式 */
+.modern-table .el-table td:last-child,
+.modern-table .el-table th:last-child {
+  padding-right: 20px;
+}
+
+/* 加载状态 */
+.modern-table .el-loading-mask {
+  background: rgba(10, 14, 39, 0.8);
+  backdrop-filter: blur(4px);
+}
+
+.modern-table .el-loading-spinner .circular {
+  animation: tableSpin 1.5s ease-in-out infinite;
+}
+
+@keyframes tableSpin {
+  0% { transform: rotate(0deg); }
+  100% { transform: rotate(360deg); }
+}
+
+/* 空数据样式 */
+.modern-table .el-table__empty-text {
+  color: rgba(255, 255, 255, 0.5);
+  padding: 40px 0;
+}
+
+/* 排序图标样式 */
+.modern-table .el-table .caret-wrapper {
+  height: 20px;
+}
+
+.modern-table .el-table .sort-caret {
+  border: 4px solid transparent;
+  transition: all 0.2s ease;
+}
+
+.modern-table .el-table .sort-caret.ascending {
+  border-bottom-color: rgba(255, 255, 255, 0.5);
+}
+
+.modern-table .el-table .sort-caret.descending {
+  border-top-color: rgba(255, 255, 255, 0.5);
+}
+
+.modern-table .el-table .sort-caret.ascending:hover,
+.modern-table .el-table .sort-caret.descending:hover {
+  border-color: #409eff;
+}
+
+/* 滚动条样式 */
+.modern-table .el-table__body-wrapper::-webkit-scrollbar {
+  width: 6px;
+  height: 6px;
+}
+
+.modern-table .el-table__body-wrapper::-webkit-scrollbar-track {
+  background: rgba(15, 21, 53, 0.5);
+  border-radius: 3px;
+}
+
+.modern-table .el-table__body-wrapper::-webkit-scrollbar-thumb {
+  background: rgba(64, 158, 255, 0.4);
+  border-radius: 3px;
+  transition: all 0.2s ease;
+}
+
+.modern-table .el-table__body-wrapper::-webkit-scrollbar-thumb:hover {
+  background: rgba(64, 158, 255, 0.7);
+}
+
+/* 进入/离开动画 */
+.table-enter-active,
+.table-leave-active {
+  transition: all 0.3s ease;
+}
+
+.table-enter-from,
+.table-leave-to {
+  opacity: 0;
+  transform: translateY(10px);
+}
+
+/* 行入场动画 - 依次淡入 */
+.modern-table .el-table__body-wrapper tr {
+  animation: fadeInRow 0.3s ease forwards;
+  animation-delay: calc(var(--index, 0) * 0.03s);
+  opacity: 0;
+}
+
+@keyframes fadeInRow {
+  from {
+    opacity: 0;
+    transform: translateX(-10px);
+  }
+  to {
+    opacity: 1;
+    transform: translateX(0);
+  }
+}
+
+/* 按钮动画 */
+.modern-btn {
+  transition: all 0.25s cubic-bezier(0.4, 0, 0.2, 1) !important;
+}
+
+.modern-btn:hover {
+  transform: translateY(-2px);
+  filter: brightness(1.1);
+}
+
+.modern-btn:active {
+  transform: translateY(0);
+}

@@ -1,0 +1,301 @@
+<?xml version="1.0" encoding="UTF-8" ?>
+<!DOCTYPE mapper PUBLIC "-//mybatis.org//DTD Mapper 3.0//EN"
+        "http://mybatis.org/dtd/mybatis-3-mapper.dtd">
+<mapper namespace="com.scenic.mapper.AdminMapper">
+
+    <!-- ==================== AdminUserMapper ==================== -->
+
+    <select id="selectByUsername" resultType="com.scenic.entity.AdminUser">
+        SELECT * FROM admin_user
+        WHERE username = #{username}
+    </select>
+
+
+    <!-- ==================== ScenicInfoMapper ==================== -->
+
+    <select id="selectScenicInfo" resultType="com.scenic.entity.ScenicInfo">
+        SELECT * FROM scenic_info LIMIT 1
+    </select>
+
+    <!-- 新增：插入景区信息 -->
+    <insert id="insertScenicInfo" useGeneratedKeys="true" keyProperty="id">
+        INSERT INTO scenic_info
+        <trim prefix="(" suffix=")" suffixOverrides=",">
+            <if test="name != null">name,</if>
+            <if test="description != null">description,</if>
+            <if test="address != null">address,</if>
+            <if test="phone != null">phone,</if>
+            <if test="businessHours != null">business_hours,</if>
+            <if test="maxCapacity != null">max_capacity,</if>
+            <if test="logo != null">logo,</if>
+            <if test="bannerImages != null">banner_images,</if>
+            updated_at
+        </trim>
+        <trim prefix="VALUES (" suffix=")" suffixOverrides=",">
+            <if test="name != null">#{name},</if>
+            <if test="description != null">#{description},</if>
+            <if test="address != null">#{address},</if>
+            <if test="phone != null">#{phone},</if>
+            <if test="businessHours != null">#{businessHours},</if>
+            <if test="maxCapacity != null">#{maxCapacity},</if>
+            <if test="logo != null">#{logo},</if>
+            <if test="bannerImages != null">#{bannerImages},</if>
+            #{updatedAt}
+        </trim>
+    </insert>
+
+    <!-- 新增：更新景区信息 -->
+    <update id="updateScenicInfo">
+        UPDATE scenic_info
+        <set>
+            <if test="name != null">name = #{name},</if>
+            <if test="description != null">description = #{description},</if>
+            <if test="address != null">address = #{address},</if>
+            <if test="phone != null">phone = #{phone},</if>
+            <if test="businessHours != null">business_hours = #{businessHours},</if>
+            <if test="maxCapacity != null">max_capacity = #{maxCapacity},</if>
+            <if test="logo != null">logo = #{logo},</if>
+            <if test="bannerImages != null">banner_images = #{bannerImages},</if>
+            updated_at = #{updatedAt}
+        </set>
+        WHERE id = #{id}
+    </update>
+
+
+    <!-- ==================== EntryRecordMapper ==================== -->
+
+    <select id="getCurrentVisitors" resultType="java.lang.Integer">
+        SELECT COUNT(*) FROM entry_record
+        WHERE DATE(entry_time) = #{date}
+          AND exit_time IS NULL
+    </select>
+
+    <select id="getSpotCurrentCount" resultType="java.lang.Integer">
+        SELECT COUNT(*) FROM entry_record
+        WHERE spot_id = #{spotId}
+          AND DATE(entry_time) = #{date}
+          AND exit_time IS NULL
+    </select>
+
+
+    <!-- ==================== ScenicSpotMapper ==================== -->
+
+    <select id="selectAllOpenSpots" resultType="com.scenic.entity.ScenicSpot">
+        SELECT * FROM scenic_spot
+        WHERE status = 'open'
+        ORDER BY sort_order
+    </select>
+
+    <!-- 新增：根据ID查询景点 -->
+    <select id="selectSpotById" resultType="com.scenic.entity.ScenicSpot">
+        SELECT * FROM scenic_spot WHERE id = #{id}
+    </select>
+
+
+    <!-- ==================== TicketOrderMapper ==================== -->
+
+    <select id="getTodayPaidCount" resultType="java.lang.Integer">
+        SELECT COUNT(*) FROM ticket_order
+        WHERE DATE(visit_date) = #{date}
+          AND status IN ('paid', 'used')
+    </select>
+
+    <select id="getMonthlyOrderCount" resultType="java.lang.Integer">
+        SELECT COUNT(*) FROM ticket_order
+        WHERE YEAR(created_at) = #{year}
+          AND MONTH(created_at) = #{month}
+    </select>
+
+    <!-- 新增：分页查询订单列表 -->
+    <select id="selectOrderListByPage" resultType="com.scenic.entity.TicketOrder">
+        SELECT * FROM ticket_order
+        <where>
+            <if test="keyword != null and keyword != ''">
+                AND (order_no LIKE CONCAT('%', #{keyword}, '%')
+                OR visitor_id IN (
+                SELECT id FROM visitor WHERE username LIKE CONCAT('%', #{keyword}, '%')
+                ))
+            </if>
+            <if test="status != null and status != ''">
+                AND status = #{status}
+            </if>
+            <if test="startDate != null">
+                AND DATE(created_at) &gt;= #{startDate}
+            </if>
+            <if test="endDate != null">
+                AND DATE(created_at) &lt;= #{endDate}
+            </if>
+        </where>
+        ORDER BY created_at DESC
+    </select>
+
+    <!-- 新增：根据ID查询订单 -->
+    <select id="selectOrderById" resultType="com.scenic.entity.TicketOrder">
+        SELECT * FROM ticket_order WHERE id = #{id}
+    </select>
+
+    <!-- 新增：更新订单状态 -->
+    <update id="updateOrderStatus">
+        UPDATE ticket_order
+        SET status = #{status}, updated_at = NOW()
+        WHERE id = #{id}
+    </update>
+
+    <!-- 新增：根据订单ID获取购票人信息 -->
+    <select id="selectTicketVisitorsByOrderId" resultType="com.scenic.entity.TicketVisitor">
+        SELECT * FROM ticket_visitor WHERE order_id = #{orderId}
+    </select>
+
+
+    <!-- ==================== 数据分析 ==================== -->
+
+    <select id="getDailyRevenue" resultType="java.math.BigDecimal">
+        SELECT COALESCE(SUM(total_price), 0) FROM ticket_order
+        WHERE DATE(created_at) = #{date}
+          AND status IN ('paid', 'used')
+    </select>
+
+    <select id="getMonthlyRevenue" resultType="java.math.BigDecimal">
+        SELECT COALESCE(SUM(total_price), 0) FROM ticket_order
+        WHERE YEAR(created_at) = #{year}
+          AND MONTH(created_at) = #{month}
+          AND status IN ('paid', 'used')
+    </select>
+
+    <select id="getTicketSalesStats" resultType="java.util.Map">
+        SELECT
+            ticket_type as ticketType,
+            COUNT(*) as count,
+            SUM(quantity) as totalQuantity,
+            COALESCE(SUM(total_price), 0) as totalRevenue
+        FROM ticket_order
+        WHERE status IN ('paid', 'used')
+        GROUP BY ticket_type
+    </select>
+
+    <select id="getVisitorAgeDistribution" resultType="java.util.Map">
+        SELECT
+            CASE
+                WHEN age BETWEEN 0 AND 17 THEN '0-17岁'
+                WHEN age BETWEEN 18 AND 25 THEN '18-25岁'
+                WHEN age BETWEEN 26 AND 35 THEN '26-35岁'
+                WHEN age BETWEEN 36 AND 50 THEN '36-50岁'
+                ELSE '50岁以上'
+                END as ageGroup,
+            COUNT(*) as value
+        FROM visitor
+        WHERE deleted = 0
+        GROUP BY ageGroup
+        ORDER BY MIN(age)
+    </select>
+
+    <select id="getVisitorGenderDistribution" resultType="java.util.Map">
+        SELECT
+            CASE
+                WHEN gender = 1 THEN '男性'
+                WHEN gender = 2 THEN '女性'
+                ELSE '未知'
+                END as genderName,
+            COUNT(*) as value
+        FROM visitor
+        WHERE deleted = 0
+        GROUP BY gender
+    </select>
+
+
+    <!-- ==================== 景点管理 ==================== -->
+
+    <select id="selectSpotListByPage" resultType="com.scenic.entity.ScenicSpot">
+        SELECT * FROM scenic_spot
+        <where>
+            <if test="keyword != null and keyword != ''">
+                name LIKE CONCAT('%', #{keyword}, '%')
+            </if>
+            <if test="category != null and category != ''">
+                AND category = #{category}
+            </if>
+        </where>
+        ORDER BY sort_order
+    </select>
+
+    <select id="countSpotList" resultType="java.lang.Long">
+        SELECT COUNT(*) FROM scenic_spot
+        <where>
+            <if test="keyword != null and keyword != ''">
+                name LIKE CONCAT('%', #{keyword}, '%')
+            </if>
+            <if test="category != null and category != ''">
+                AND category = #{category}
+            </if>
+        </where>
+    </select>
+
+    <insert id="insertSpot" useGeneratedKeys="true" keyProperty="id">
+        INSERT INTO scenic_spot
+        <trim prefix="(" suffix=")" suffixOverrides=",">
+            name,
+            <if test="description != null">description,</if>
+            <if test="address != null">address,</if>
+            <if test="imageUrl != null">image_url,</if>
+            <if test="latitude != null">latitude,</if>
+            <if test="longitude != null">longitude,</if>
+            <if test="stayTime != null">stay_time,</if>
+            <if test="maxCapacity != null">max_capacity,</if>
+            current_count,
+            <if test="sortOrder != null">sort_order,</if>
+            <if test="status != null">status,</if>
+            <if test="category != null">category,</if>
+            created_at,
+            updated_at
+        </trim>
+        <trim prefix="VALUES (" suffix=")" suffixOverrides=",">
+            #{name},
+            <if test="description != null">#{description},</if>
+            <if test="address != null">#{address},</if>
+            <if test="imageUrl != null">#{imageUrl},</if>
+            <if test="latitude != null">#{latitude},</if>
+            <if test="longitude != null">#{longitude},</if>
+            <if test="stayTime != null">#{stayTime},</if>
+            <if test="maxCapacity != null">#{maxCapacity},</if>
+            0,
+            <if test="sortOrder != null">#{sortOrder},</if>
+            <if test="status != null">#{status},</if>
+            <if test="category != null">#{category},</if>
+            NOW(),
+            NOW()
+        </trim>
+    </insert>
+
+    <update id="updateSpot">
+        UPDATE scenic_spot
+        <set>
+            <if test="name != null">name = #{name},</if>
+            <if test="description != null">description = #{description},</if>
+            <if test="address != null">address = #{address},</if>
+            <if test="imageUrl != null">image_url = #{imageUrl},</if>
+            <if test="latitude != null">latitude = #{latitude},</if>
+            <if test="longitude != null">longitude = #{longitude},</if>
+            <if test="stayTime != null">stay_time = #{stayTime},</if>
+            <if test="maxCapacity != null">max_capacity = #{maxCapacity},</if>
+            <if test="sortOrder != null">sort_order = #{sortOrder},</if>
+            <if test="status != null">status = #{status},</if>
+            <if test="category != null">category = #{category},</if>
+            updated_at = NOW()
+        </set>
+        WHERE id = #{id}
+    </update>
+
+    <delete id="deleteSpot">
+        DELETE FROM scenic_spot WHERE id = #{id}
+    </delete>
+
+    <select id="selectById" resultType="com.scenic.entity.AdminUser">
+        SELECT * FROM admin_user WHERE id = #{id}
+    </select>
+
+    <update id="updatePassword">
+        UPDATE admin_user
+        SET password = #{password}, updated_at = #{updatedAt}
+        WHERE id = #{id}
+    </update>
+</mapper>
