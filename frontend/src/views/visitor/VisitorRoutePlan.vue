@@ -34,7 +34,7 @@
               已选景点
               <span style="font-size: 12px; color: #999;">（共 {{ selectedSpots.length }} 个）</span>
               <div class="section-buttons">
-                <el-button v-if="selectedSpots.length > 1" type="primary" link size="small" @click="sortByRecommend">
+                <el-button v-if="selectedSpots.length > 1" type="primary" link size="small" :loading="sorting" @click="sortByRecommend">
                   智能排序
                 </el-button>
                 <el-button v-if="selectedSpots.length > 0" type="danger" link size="small" @click="clearRoute">
@@ -76,7 +76,7 @@
             </div>
             <div class="info-item">
               <div class="label">步行距离</div>
-              <div class="value">{{ totalDistance }}米</div>
+              <div class="value">{{ totalDistance }}公里</div>
             </div>
             <div class="info-item">
               <div class="label">景点数量</div>
@@ -111,7 +111,7 @@ import { ElMessage } from 'element-plus'
 import { MagicStick, Delete, Document, Printer, ArrowUp, ArrowDown, Loading, Location } from '@element-plus/icons-vue'
 import VisitorHeader from '@/components/VisitorHeader.vue'
 import VisitorFooter from '@/components/VisitorFooter.vue'
-import { saveRoute as saveRouteApi } from '@/api/visitor'
+import { saveRoute as saveRouteApi, getSpotList as getSpotListApi, generateRoute as generateRouteApi } from '@/api/visitor'
 
 // 百度地图相关
 let map = null
@@ -123,11 +123,19 @@ let geocoder = null
 const mapContainer = ref(null)
 const selectedSpots = ref([])
 const generating = ref(false)
+const sorting = ref(false)
 const mapLoading = ref(true)
 const mapLoaded = ref(false)
 const mapError = ref('')
 
+// 经典推荐路线的时间预算（分钟），请求后端推荐路线时使用
+const CLASSIC_ROUTE_DURATION = 240
+// 后端推荐接口不可用时的降级推荐顺序（原硬编码数据）
+const FALLBACK_RECOMMEND_ORDER = [1, 6, 8, 2, 3, 4, 5, 7, 9, 10]
+
 // ========== 特呈岛景点数据 ==========
+// 注意：该数组仅作为 GET /api/visitor/spot/list 请求失败时的降级数据，
+// 页面加载时会尝试用后端返回的真实景点数据覆盖它
 const allSpots = ref([
   { id: 1, name: '特呈岛码头', address: '湛江市霞山区特呈岛码头', lat: null, lng: null, duration: 20, description: '景区主入口，乘船登岛点，游客服务中心' },
   { id: 2, name: '渔村文化村', address: '湛江市霞山区特呈岛渔村', lat: null, lng: null, duration: 30, description: '体验晒鱼干、做门鳝干，感受疍家文化' },
@@ -145,10 +153,82 @@ const totalDuration = computed(() => {
   return selectedSpots.value.reduce((sum, spot) => sum + (spot.duration || 30), 0)
 })
 
+// 坐标有效性校验：后端 latitude/longitude 是 BigDecimal，可能为 null
+const hasValidCoord = (spot) => {
+  const lat = Number(spot?.lat)
+  const lng = Number(spot?.lng)
+  if (!Number.isFinite(lat) || !Number.isFinite(lng)) return false
+  // null 经 Number() 会变成 0，因此 0 一律视为缺失坐标
+  return lat !== 0 && lng !== 0
+}
+
+// Haversine 公式：按两个经纬度坐标计算球面距离，单位公里
+const haversineDistance = (lat1, lng1, lat2, lng2) => {
+  const toRad = (deg) => (deg * Math.PI) / 180
+  const earthRadius = 6371 // 地球平均半径（公里）
+  const dLat = toRad(lat2 - lat1)
+  const dLng = toRad(lng2 - lng1)
+  const a = Math.sin(dLat / 2) ** 2 +
+    Math.cos(toRad(lat1)) * Math.cos(toRad(lat2)) * Math.sin(dLng / 2) ** 2
+  return 2 * earthRadius * Math.asin(Math.sqrt(a))
+}
+
 const totalDistance = computed(() => {
   if (selectedSpots.value.length <= 1) return 0
-  return selectedSpots.value.length * 250 + (selectedSpots.value.length - 1) * 180
+  let distance = 0
+  let measured = false
+  for (let i = 0; i < selectedSpots.value.length - 1; i++) {
+    const from = selectedSpots.value[i]
+    const to = selectedSpots.value[i + 1]
+    // 任一景点坐标缺失就跳过这一段，不能按 0 计算，否则总距离会偏小
+    if (!hasValidCoord(from) || !hasValidCoord(to)) continue
+    const segment = haversineDistance(Number(from.lat), Number(from.lng), Number(to.lat), Number(to.lng))
+    if (Number.isFinite(segment)) {
+      distance += segment
+      measured = true
+    }
+  }
+  return measured ? Number(distance.toFixed(1)) : 0
 })
+
+// ========== 加载后端真实景点数据 ==========
+const loadSpots = async () => {
+  try {
+    const res = await getSpotListApi()
+    const list = Array.isArray(res?.data) ? res.data : []
+
+    if (list.length === 0) {
+      ElMessage.error('景点数据为空，已使用本地降级数据')
+      return false
+    }
+
+    // 字段映射：stayTime -> duration，latitude/longitude -> lat/lng
+    allSpots.value = list
+      .filter(item => item && item.id !== null && item.id !== undefined)
+      .map(item => {
+        const latitude = (item.latitude === null || item.latitude === undefined) ? null : Number(item.latitude)
+        const longitude = (item.longitude === null || item.longitude === undefined) ? null : Number(item.longitude)
+        return {
+          id: item.id,
+          name: item.name || '未命名景点',
+          address: item.address || '',
+          description: item.description || '',
+          duration: item.stayTime || 30,
+          // 坐标为 null / 非数字时统一置为 null，地图与距离计算都会跳过该景点
+          lat: Number.isFinite(latitude) ? latitude : null,
+          lng: Number.isFinite(longitude) ? longitude : null
+        }
+      })
+
+    console.log(`景点数据加载完成：${allSpots.value.length} 个`)
+    return true
+  } catch (error) {
+    // 接口失败时保留硬编码降级数据，保证页面仍然可用
+    console.error('景点列表加载失败，已使用本地降级数据:', error)
+    ElMessage.error('景点数据加载失败，已使用本地降级数据')
+    return false
+  }
+}
 
 // 移动景点
 const moveUp = (index) => {
@@ -171,18 +251,51 @@ const moveDown = (index) => {
   }
 }
 
-const sortByRecommend = () => {
-  const recommendOrder = [1, 6, 8, 2, 3, 4, 5, 7, 9, 10]
-  selectedSpots.value.sort((a, b) => {
-    const indexA = recommendOrder.indexOf(a.id)
-    const indexB = recommendOrder.indexOf(b.id)
-    if (indexA === -1 && indexB === -1) return 0
-    if (indexA === -1) return 1
-    if (indexB === -1) return -1
-    return indexA - indexB
+// 智能排序：由后端按时间预算返回推荐顺序
+const sortByRecommend = async () => {
+  if (selectedSpots.value.length <= 1) return
+
+  const candidates = [...selectedSpots.value]
+  sorting.value = true
+  const loadingMsg = ElMessage({
+    message: '正在按时间预算获取推荐顺序...',
+    duration: 0,
+    type: 'info'
   })
-  ElMessage.success('已按推荐顺序排序')
-  drawRouteLine()
+
+  try {
+    // 以当前已选景点的总游览时长作为时间预算
+    const res = await generateRouteApi({ duration: totalDuration.value })
+    const order = Array.isArray(res?.data) ? res.data : []
+
+    if (order.length === 0) {
+      ElMessage.warning('后端未返回推荐顺序，已保持当前顺序')
+      return
+    }
+
+    const orderMap = new Map(order.map((id, index) => [id, index]))
+    // 只对后端返回的景点排序，未返回的追加在后面
+    const recommended = candidates
+      .filter(spot => orderMap.has(spot.id))
+      .sort((a, b) => orderMap.get(a.id) - orderMap.get(b.id))
+    const rest = candidates.filter(spot => !orderMap.has(spot.id))
+
+    selectedSpots.value = [...recommended, ...rest]
+
+    if (rest.length > 0) {
+      ElMessage.warning(`已按时间预算优化，部分景点未纳入：${rest.map(spot => spot.name).join('、')}`)
+    } else {
+      ElMessage.success('已按推荐顺序排序')
+    }
+    drawRouteLine()
+    updateMarkersStyle()
+  } catch (error) {
+    console.error('获取推荐顺序失败:', error)
+    ElMessage.error('推荐顺序获取失败，已保持当前顺序')
+  } finally {
+    loadingMsg.close()
+    sorting.value = false
+  }
 }
 
 // 显示路线
@@ -269,6 +382,12 @@ const geocodeAllSpots = async (BMapGL) => {
   let successCount = 0
   
   for (const spot of allSpots.value) {
+    // 后端已返回真实经纬度的景点直接使用，避免被地理编码结果覆盖
+    if (hasValidCoord(spot)) {
+      successCount++
+      continue
+    }
+    
     const point = await geocodeSpot(spot)
     if (point) {
       successCount++
@@ -467,19 +586,47 @@ const removeSpot = (index) => {
   updateMarkersStyle()
 }
 
-// 一键生成推荐路线
-const generateRecommendRoute = () => {
+// 一键生成推荐路线（改为调用后端推荐算法）
+const generateRecommendRoute = async () => {
   generating.value = true
-  setTimeout(() => {
-    const recommendIds = [1, 6, 8, 2, 3, 4, 5, 7, 9, 10]
-    selectedSpots.value = allSpots.value
-      .filter(spot => recommendIds.includes(spot.id))
-      .map(spot => ({ ...spot }))
-    ElMessage.success('已生成经典游览路线')
+  try {
+    const res = await generateRouteApi({ duration: CLASSIC_ROUTE_DURATION })
+    const order = Array.isArray(res?.data) ? res.data : []
+
+    if (order.length === 0) {
+      console.warn('推荐路线接口未返回数据，使用本地降级推荐顺序')
+      ElMessage.warning('推荐路线接口未返回结果，已使用本地推荐顺序')
+      applyRecommendOrder(FALLBACK_RECOMMEND_ORDER)
+      return
+    }
+
+    applyRecommendOrder(order)
+    ElMessage.success(`已生成推荐路线，共 ${selectedSpots.value.length} 个景点`)
+  } catch (error) {
+    // 接口异常时保留原有硬编码推荐顺序作为降级
+    console.error('生成推荐路线失败，已使用本地降级推荐顺序:', error)
+    ElMessage.error('推荐路线生成失败，已使用本地推荐顺序')
+    applyRecommendOrder(FALLBACK_RECOMMEND_ORDER)
+  } finally {
     generating.value = false
-    drawRouteLine()
-    updateMarkersStyle()
-  }, 300)
+  }
+}
+
+// 按后端返回的 id 顺序重排已选景点
+const applyRecommendOrder = (orderIds) => {
+  const spots = orderIds
+    .map(id => allSpots.value.find(spot => spot.id === id))
+    .filter(Boolean)
+    .map(spot => ({ ...spot }))
+
+  if (spots.length === 0) {
+    ElMessage.warning('没有可推荐的景点')
+    return
+  }
+
+  selectedSpots.value = spots
+  drawRouteLine()
+  updateMarkersStyle()
 }
 
 // 保存路线
@@ -503,7 +650,8 @@ const saveRoute = async () => {
     spotIds: selectedSpots.value.map(s => s.id),
     stayTimes: selectedSpots.value.map(s => s.duration || 30),
     totalTime: totalDuration.value,
-    totalDistance: (totalDistance.value / 1000).toFixed(1)
+    // totalDistance 已按公里保留一位小数，无需再除以 1000
+    totalDistance: totalDistance.value
   }
   
   console.log('保存路线请求数据:', requestData)  // 调试日志
@@ -553,7 +701,7 @@ const printRoute = () => {
       <h1>🏝️ 特呈岛游览路线</h1>
       <div class="info">
         <p>打印时间：${new Date().toLocaleString()}</p>
-        <p>总时长：${totalDuration.value} 分钟 | 步行距离：约 ${totalDistance.value} 米 | 景点数量：${selectedSpots.value.length} 个</p>
+        <p>总时长：${totalDuration.value} 分钟 | 步行距离：约 ${totalDistance.value} 公里 | 景点数量：${selectedSpots.value.length} 个</p>
       </div>
       <table>
         <thead>
@@ -602,7 +750,10 @@ const handleResize = () => {
   }
 }
 
-onMounted(() => {
+onMounted(async () => {
+  // 先加载后端真实景点数据；失败时 loadSpots 内部已保留硬编码降级数据
+  await loadSpots()
+  
   nextTick(() => {
     setTimeout(() => initMap(), 500)
   })

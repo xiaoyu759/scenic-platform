@@ -39,7 +39,7 @@
 | 认证鉴权 | JWT（jjwt 0.9.1）+ 拦截器，游客 / 管理员双令牌体系 |
 | 工程增强 | Lombok、Hutool、Spring AOP、Validation 参数校验 |
 | 前端框架 | Vue 3.3（组合式 API）、Vue Router 4、Pinia |
-| UI / 可视化 | Element Plus 2.3、ECharts 5 图表、Leaflet 1.9 地图 |
+| UI / 可视化 | Element Plus 2.3、ECharts 5 图表、百度地图 JavaScript API GL（BMapGL） |
 | 构建 / 请求 | Maven、Vite 4、Axios（统一封装与拦截器） |
 
 ## 功能模块
@@ -74,17 +74,19 @@
 scenic-platform/
 ├── backend/                          # Spring Boot 后端服务
 │   ├── src/main/java/com/scenic/
+│   │   ├── aspect/                   # 服务层慢调用监控切面
 │   │   ├── common/                   # 统一响应体 Result、分页 PageResult、状态码
-│   │   ├── config/                   # 跨域、Web、Redis、JWT 配置
+│   │   ├── config/                   # 跨域、Web、Redis 缓存、JWT 配置
 │   │   ├── controller/
 │   │   │   ├── admin/                # 管理端接口
 │   │   │   └── visitor/              # 游客端接口
 │   │   ├── dto/                      # 请求参数对象
 │   │   ├── entity/                   # 数据库实体
+│   │   ├── exception/                # 业务异常与全局异常处理
 │   │   ├── interceptor/              # JWT 登录拦截器
 │   │   ├── mapper/                   # MyBatis Mapper 接口
 │   │   ├── service/ + service/impl/  # 业务逻辑
-│   │   └── utils/                    # JWT 工具类
+│   │   └── utils/                    # JWT 工具类、BCrypt 口令工具
 │   ├── src/main/resources/
 │   │   ├── com.scenic.mapper/        # MyBatis Mapper XML
 │   │   └── application.yml           # 应用配置

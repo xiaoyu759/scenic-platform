@@ -3,13 +3,18 @@ package com.scenic.service.impl;
 import com.github.pagehelper.PageHelper;
 import com.github.pagehelper.PageInfo;
 import com.scenic.common.PageResult;
+import com.scenic.common.StatusCode;
 import com.scenic.entity.*;
+import com.scenic.exception.BusinessException;
 import com.scenic.mapper.AdminMapper;
 import com.scenic.service.AdminService;
 import com.scenic.utils.JwtUtil;
+import com.scenic.utils.PasswordUtil;
 import jakarta.servlet.http.HttpServletResponse;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
+import org.springframework.cache.annotation.CacheEvict;
+import org.springframework.cache.annotation.Cacheable;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
@@ -35,10 +40,16 @@ public class AdminServiceImpl implements AdminService {
     public Map<String, Object> adminLogin(String username, String password) {
         AdminUser admin = adminMapper.selectByUsername(username);
         if (admin == null) {
-            throw new RuntimeException("用户名或密码错误");
+            throw new BusinessException(StatusCode.UNAUTHORIZED, "用户名或密码错误");
         }
-        if (!password.equals(admin.getPassword())) {
-            throw new RuntimeException("用户名或密码错误");
+        if (!PasswordUtil.matches(password, admin.getPassword())) {
+            throw new BusinessException(StatusCode.UNAUTHORIZED, "用户名或密码错误");
+        }
+        // 存量明文口令校验通过后原地升级为 BCrypt，老账号无需强制重置
+        if (!PasswordUtil.isEncoded(admin.getPassword())) {
+            admin.setPassword(PasswordUtil.encode(password));
+            adminMapper.updatePassword(admin);
+            log.info("管理员口令已升级为 BCrypt 存储: adminId={}", admin.getId());
         }
         String token = jwtUtil.generateAdminToken(admin.getId(), admin.getUsername());
 
@@ -129,64 +140,78 @@ public class AdminServiceImpl implements AdminService {
     }
 
     @Override
+    @Cacheable(cacheNames = "monitor", key = "'trend:' + #type")
     public Object getMonitorTrend(String type) {
-        if ("daily".equals(type)) {
-            // 近7天入园趋势
-            List<String> dates = new ArrayList<>();
-            List<Integer> counts = new ArrayList<>();
+        boolean daily = "daily".equals(type);
+
+        // 标签在内存中按区间顺序生成，查询只发一次，缺失的日期由 getOrDefault 补 0
+        List<String> labels = new ArrayList<>();
+        List<Map<String, Object>> rows;
+
+        if (daily) {
+            LocalDate end = LocalDate.now();
+            LocalDate start = end.minusDays(6);
             DateTimeFormatter formatter = DateTimeFormatter.ofPattern("MM-dd");
-
             for (int i = 6; i >= 0; i--) {
-                LocalDate date = LocalDate.now().minusDays(i);
-                dates.add(date.format(formatter));
-
-                Integer count = adminMapper.getTodayPaidCount(date);
-                counts.add(count == null ? 0 : count);
+                labels.add(end.minusDays(i).format(formatter));
             }
-
-            Map<String, Object> result = new HashMap<>();
-            result.put("dates", dates);
-            result.put("counts", counts);
-            return result;
-
+            rows = adminMapper.getDailyPaidCounts(start, end);
         } else {
-            // 近6月入园趋势
-            List<String> months = new ArrayList<>();
-            List<Integer> counts = new ArrayList<>();
+            LocalDate end = LocalDate.now().withDayOfMonth(1);
+            LocalDate start = end.minusMonths(5);
             DateTimeFormatter formatter = DateTimeFormatter.ofPattern("yyyy-MM");
-
             for (int i = 5; i >= 0; i--) {
-                LocalDate date = LocalDate.now().minusMonths(i);
-                months.add(date.format(formatter));
-
-                Integer count = adminMapper.getMonthlyOrderCount(date.getYear(), date.getMonthValue());
-                counts.add(count == null ? 0 : count);
+                labels.add(end.minusMonths(i).format(formatter));
             }
-
-            Map<String, Object> result = new HashMap<>();
-            result.put("dates", months);
-            result.put("counts", counts);
-            return result;
+            rows = adminMapper.getMonthlyOrderCounts(start, end.plusMonths(1));
         }
+
+        Map<String, Integer> counted = new HashMap<>();
+        for (Map<String, Object> row : rows) {
+            Object label = row.get("label");
+            Object cnt = row.get("cnt");
+            if (label != null) {
+                counted.put(label.toString(), cnt instanceof Number number ? number.intValue() : 0);
+            }
+        }
+
+        List<Integer> counts = labels.stream()
+                .map(label -> counted.getOrDefault(label, 0))
+                .toList();
+
+        Map<String, Object> result = new HashMap<>();
+        result.put("dates", labels);
+        result.put("counts", counts);
+        return result;
     }
 
     @Override
+    @Cacheable(cacheNames = "monitor", key = "'heatmap'")
     public List<Map<String, Object>> getHeatmapData() {
         LocalDate today = LocalDate.now();
 
         // 获取所有开放景点
         List<ScenicSpot> spots = adminMapper.selectAllOpenSpots();
+
+        // 一次聚合取回全部景点人数，替代按景点逐个 COUNT
+        Map<Long, Integer> countBySpot = new HashMap<>();
+        for (Map<String, Object> row : adminMapper.getSpotCurrentCounts(today)) {
+            Object spotId = row.get("spotId");
+            Object cnt = row.get("cnt");
+            if (spotId instanceof Number id) {
+                countBySpot.put(id.longValue(), cnt instanceof Number number ? number.intValue() : 0);
+            }
+        }
+
         List<Map<String, Object>> result = new ArrayList<>();
 
         for (ScenicSpot spot : spots) {
             // 获取景点当前人数
-            Integer currentCount = adminMapper.getSpotCurrentCount(spot.getId(), today);
-            if (currentCount == null) {
-                currentCount = 0;
-            }
+            int currentCount = countBySpot.getOrDefault(spot.getId(), 0);
 
-            // 计算拥挤度比例
-            double rate = (double) currentCount / spot.getMaxCapacity();
+            // 计算拥挤度比例；承载量缺失或非法时兜底，避免除零把强度算成 Infinity
+            Integer capacity = spot.getMaxCapacity();
+            double rate = (double) currentCount / (capacity == null || capacity <= 0 ? 200 : capacity);
 
             // 计算热力强度（0-1）
             double intensity = Math.min(rate * 1.2, 1.0);
@@ -436,6 +461,7 @@ public class AdminServiceImpl implements AdminService {
 
     @Override
     @Transactional
+    @CacheEvict(cacheNames = "monitor", allEntries = true)
     public void addSpot(ScenicSpot spot) {
         // 设置默认值
         if (spot.getCurrentCount() == null) {
@@ -462,6 +488,7 @@ public class AdminServiceImpl implements AdminService {
 
     @Override
     @Transactional
+    @CacheEvict(cacheNames = "monitor", allEntries = true)
     public void updateSpot(ScenicSpot spot) {
         ScenicSpot existing = adminMapper.selectSpotById(spot.getId());
         if (existing == null) {
@@ -477,6 +504,7 @@ public class AdminServiceImpl implements AdminService {
 
     @Override
     @Transactional
+    @CacheEvict(cacheNames = "monitor", allEntries = true)
     public void deleteSpot(Long id) {
         ScenicSpot existing = adminMapper.selectSpotById(id);
         if (existing == null) {
@@ -648,10 +676,13 @@ public class AdminServiceImpl implements AdminService {
         if (admin == null) {
             throw new RuntimeException("管理员不存在");
         }
-        if (!admin.getPassword().equals(oldPassword)) {
-            throw new RuntimeException("原密码错误");
+        if (!PasswordUtil.matches(oldPassword, admin.getPassword())) {
+            throw new BusinessException("原密码错误");
         }
-        admin.setPassword(newPassword);
+        if (!PasswordUtil.isStrongPassword(newPassword)) {
+            throw new BusinessException("新密码需至少 6 位且同时包含字母和数字");
+        }
+        admin.setPassword(PasswordUtil.encode(newPassword));
         admin.setUpdatedAt(LocalDateTime.now());
         int result = adminMapper.updatePassword(admin);
         if (result <= 0) {

@@ -34,6 +34,29 @@ public interface AdminMapper {
     // ========== TicketOrderMapper ==========
     Integer getTodayPaidCount(@Param("date") LocalDate date);
     Integer getMonthlyOrderCount(@Param("year") int year, @Param("month") int month);
+
+    /**
+     * 区间内每日有效订单量聚合，替代「近 N 天逐日 COUNT」循环
+     *
+     * @return [{ label: "MM-dd", cnt: 数量 }]
+     */
+    List<Map<String, Object>> getDailyPaidCounts(@Param("startDate") LocalDate startDate,
+                                                 @Param("endDate") LocalDate endDate);
+
+    /**
+     * 区间内每月订单量聚合，替代「近 N 月逐月 COUNT」循环
+     *
+     * @return [{ label: "yyyy-MM", cnt: 数量 }]
+     */
+    List<Map<String, Object>> getMonthlyOrderCounts(@Param("startDate") LocalDate startDate,
+                                                    @Param("endDate") LocalDate endDate);
+
+    /**
+     * 所有景点的当日实时人数聚合，替代「按景点逐个 COUNT」
+     *
+     * @return [{ spotId: 景点ID, cnt: 人数 }]
+     */
+    List<Map<String, Object>> getSpotCurrentCounts(@Param("date") LocalDate date);
     List<TicketOrder> selectOrderListByPage(
             @Param("keyword") String keyword,
             @Param("status") String status,

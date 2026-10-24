@@ -1,18 +1,23 @@
 package com.scenic.service.impl;
 
 import cn.hutool.core.util.IdUtil;
+import com.scenic.common.StatusCode;
 import com.scenic.dto.*;
 import com.scenic.entity.*;
+import com.scenic.exception.BusinessException;
 import com.scenic.mapper.VisitorMapper;
 import com.scenic.mapper.ScenicSpotMapper;
 import com.scenic.service.VisitorService;
 import com.scenic.utils.JwtUtil;
+import com.scenic.utils.PasswordUtil;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
+import org.springframework.beans.factory.annotation.Value;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
 import java.math.BigDecimal;
+import java.time.LocalDate;
 import java.time.LocalDateTime;
 import java.time.format.DateTimeFormatter;
 import java.util.*;
@@ -27,8 +32,13 @@ public class VisitorServiceImpl implements VisitorService {
     private final ScenicSpotMapper scenicSpotMapper;
     private final JwtUtil jwtUtil;
 
-    private static final BigDecimal SINGLE_PRICE = new BigDecimal("60");
-    private static final BigDecimal COMBO_PRICE = new BigDecimal("168");
+    /** 门票单价，取自 application.yml 的 app.single-ticket-price */
+    @Value("${app.single-ticket-price:60}")
+    private BigDecimal singleTicketPrice;
+
+    /** 套票单价，取自 application.yml 的 app.combo-ticket-price */
+    @Value("${app.combo-ticket-price:168}")
+    private BigDecimal comboPrice;
 
     // ==================== 用户模块 ====================
 
@@ -36,10 +46,16 @@ public class VisitorServiceImpl implements VisitorService {
     public Map<String, Object> login(LoginDTO loginDTO) {
         Visitor visitor = visitorMapper.selectByUsername(loginDTO.getUsername());
         if (visitor == null) {
-            throw new RuntimeException("用户名或密码错误");
+            throw new BusinessException(StatusCode.UNAUTHORIZED, "用户名或密码错误");
         }
-        if (!loginDTO.getPassword().equals(visitor.getPassword())) {
-            throw new RuntimeException("用户名或密码错误");
+        if (!PasswordUtil.matches(loginDTO.getPassword(), visitor.getPassword())) {
+            throw new BusinessException(StatusCode.UNAUTHORIZED, "用户名或密码错误");
+        }
+        // 存量明文口令校验通过后原地升级为 BCrypt，老账号无需强制重置
+        if (!PasswordUtil.isEncoded(visitor.getPassword())) {
+            visitor.setPassword(PasswordUtil.encode(loginDTO.getPassword()));
+            visitorMapper.updatePassword(visitor);
+            log.info("游客口令已升级为 BCrypt 存储: userId={}", visitor.getId());
         }
 
         String token = jwtUtil.generateVisitorToken(visitor.getId(), visitor.getUsername());
@@ -70,9 +86,13 @@ public class VisitorServiceImpl implements VisitorService {
             throw new RuntimeException("手机号已被注册");
         }
 
+        if (!PasswordUtil.isStrongPassword(registerDTO.getPassword())) {
+            throw new BusinessException("密码需至少 6 位且同时包含字母和数字");
+        }
+
         Visitor visitor = new Visitor();
         visitor.setUsername(registerDTO.getUsername());
-        visitor.setPassword(registerDTO.getPassword());
+        visitor.setPassword(PasswordUtil.encode(registerDTO.getPassword()));
         visitor.setNickname(registerDTO.getNickname() != null ? registerDTO.getNickname() : registerDTO.getUsername());
         visitor.setPhone(registerDTO.getPhone());
         visitor.setEmail(registerDTO.getEmail());
@@ -278,7 +298,13 @@ public class VisitorServiceImpl implements VisitorService {
     @Override
     @Transactional
     public Map<String, Object> createOrder(Long userId, OrderDTO orderDTO) {
-        BigDecimal price = orderDTO.getTicketType().equals("single") ? SINGLE_PRICE : COMBO_PRICE;
+        // 票种、数量、手机号、身份证等已由 OrderDTO 上的 Bean Validation 在进入本方法前拦截，
+        // 这里只补服务端必须自己保证的规则：不允许预约过去的日期
+        if (orderDTO.getVisitDate() != null && orderDTO.getVisitDate().isBefore(LocalDate.now())) {
+            throw new BusinessException("游览日期不能早于今天");
+        }
+
+        BigDecimal price = "single".equals(orderDTO.getTicketType()) ? singleTicketPrice : comboPrice;
         BigDecimal totalPrice = price.multiply(new BigDecimal(orderDTO.getQuantity()));
 
         String orderNo = "ORD" + LocalDateTime.now().format(DateTimeFormatter.ofPattern("yyyyMMddHHmmss")) +
@@ -373,31 +399,114 @@ public class VisitorServiceImpl implements VisitorService {
 
     // ==================== 路线模块 ====================
 
+    /** 默认游览时长预算（分钟） */
+    private static final int DEFAULT_ROUTE_DURATION = 240;
+
+    /** 景区内步行速度（公里/小时），用于把地理距离折算成通行耗时 */
+    private static final double WALKING_SPEED_KMH = 4.0;
+
+    /** 地球半径（公里） */
+    private static final double EARTH_RADIUS_KM = 6371.0;
+
+    /** 经纬度缺失时的兜底通行距离（公里） */
+    private static final double FALLBACK_DISTANCE_KM = 0.3;
+
     @Override
     public List<Long> generateRoute(Map<String, Object> params) {
-        Integer duration = params.containsKey("duration") ? (Integer) params.get("duration") : 240;
+        int duration = parseDuration(params);
         List<ScenicSpot> spots = scenicSpotMapper.selectAllOpen();
-
-        spots.sort(Comparator.comparing(ScenicSpot::getSortOrder));
         List<Long> routeIds = new ArrayList<>();
-        int totalTime = 0;
-
-        for (ScenicSpot spot : spots) {
-            if (totalTime + spot.getStayTime() <= duration) {
-                routeIds.add(spot.getId());
-                totalTime += spot.getStayTime();
-            }
+        if (spots.isEmpty()) {
+            return routeIds;
         }
 
-        if (duration > totalTime) {
-            for (ScenicSpot spot : spots) {
-                if (!routeIds.contains(spot.getId()) && totalTime + spot.getStayTime() <= duration) {
-                    routeIds.add(spot.getId());
-                    totalTime += spot.getStayTime();
+        // 以 sort_order 最小者（景区入口 / 码头）作为起点
+        ScenicSpot current = spots.stream()
+                .min(Comparator.comparingInt(s -> s.getSortOrder() == null ? Integer.MAX_VALUE : s.getSortOrder()))
+                .orElse(spots.get(0));
+
+        int totalTime = stayMinutes(current);
+        if (totalTime > duration) {
+            // 预算连入口景点的停留时间都不够，不存在可行路线
+            return routeIds;
+        }
+        routeIds.add(current.getId());
+        Set<Long> visited = new HashSet<>();
+        visited.add(current.getId());
+
+        // 最近邻贪心：每一步都在「剩余预算内可达」的未访问景点中取地理距离最近的一个，
+        // 通行耗时按步行速度折算后一并计入预算（原实现只累计停留时间，会超出用户设定的时长）
+        while (true) {
+            ScenicSpot next = null;
+            double nearest = Double.MAX_VALUE;
+            int travelCost = 0;
+
+            for (ScenicSpot candidate : spots) {
+                if (visited.contains(candidate.getId())) {
+                    continue;
+                }
+                double distance = distanceKm(current, candidate);
+                int travel = travelMinutes(distance);
+                if (totalTime + travel + stayMinutes(candidate) > duration) {
+                    continue;
+                }
+                if (distance < nearest) {
+                    nearest = distance;
+                    travelCost = travel;
+                    next = candidate;
                 }
             }
+
+            if (next == null) {
+                break;
+            }
+            routeIds.add(next.getId());
+            visited.add(next.getId());
+            totalTime += travelCost + stayMinutes(next);
+            current = next;
         }
+
+        log.info("路线生成完成: 时长预算={}分钟, 纳入景点={}个, 预计总耗时={}分钟",
+                duration, routeIds.size(), totalTime);
         return routeIds;
+    }
+
+    /**
+     * 解析时长预算，兼容 JSON 反序列化出的 Integer / Long / Double
+     */
+    private int parseDuration(Map<String, Object> params) {
+        Object raw = params == null ? null : params.get("duration");
+        if (raw instanceof Number number && number.intValue() > 0) {
+            return number.intValue();
+        }
+        return DEFAULT_ROUTE_DURATION;
+    }
+
+    private int stayMinutes(ScenicSpot spot) {
+        return spot.getStayTime() == null || spot.getStayTime() <= 0 ? 30 : spot.getStayTime();
+    }
+
+    private int travelMinutes(double distanceKm) {
+        return (int) Math.ceil(distanceKm / WALKING_SPEED_KMH * 60);
+    }
+
+    /**
+     * Haversine 球面距离（公里）。任一端点经纬度缺失时退回默认通行距离，
+     * 保证景点坐标不全时路线仍可生成而不是直接失败。
+     */
+    private double distanceKm(ScenicSpot from, ScenicSpot to) {
+        if (from.getLatitude() == null || from.getLongitude() == null
+                || to.getLatitude() == null || to.getLongitude() == null) {
+            return FALLBACK_DISTANCE_KM;
+        }
+        double lat1 = Math.toRadians(from.getLatitude().doubleValue());
+        double lat2 = Math.toRadians(to.getLatitude().doubleValue());
+        double deltaLat = lat2 - lat1;
+        double deltaLng = Math.toRadians(to.getLongitude().doubleValue() - from.getLongitude().doubleValue());
+
+        double a = Math.sin(deltaLat / 2) * Math.sin(deltaLat / 2)
+                + Math.cos(lat1) * Math.cos(lat2) * Math.sin(deltaLng / 2) * Math.sin(deltaLng / 2);
+        return 2 * EARTH_RADIUS_KM * Math.asin(Math.min(1.0, Math.sqrt(a)));
     }
 
     @Override
@@ -502,10 +611,13 @@ public class VisitorServiceImpl implements VisitorService {
         if (visitor == null) {
             throw new RuntimeException("用户不存在");
         }
-        if (!visitor.getPassword().equals(oldPassword)) {
-            throw new RuntimeException("原密码错误");
+        if (!PasswordUtil.matches(oldPassword, visitor.getPassword())) {
+            throw new BusinessException("原密码错误");
         }
-        visitor.setPassword(newPassword);
+        if (!PasswordUtil.isStrongPassword(newPassword)) {
+            throw new BusinessException("新密码需至少 6 位且同时包含字母和数字");
+        }
+        visitor.setPassword(PasswordUtil.encode(newPassword));
         visitor.setUpdatedAt(LocalDateTime.now());
         int result = visitorMapper.updatePassword(visitor);
         if (result <= 0) {

@@ -106,6 +106,40 @@
           AND MONTH(created_at) = #{month}
     </select>
 
+    <!--
+        以下三条为聚合查询：原先趋势图按天/按月逐次 COUNT、热力图按景点逐个 COUNT，
+        景点 20+ 时单次请求要打 20+ 次库。改为一次 GROUP BY 取回整段区间的数据，
+        在内存里按标签对齐，查询次数由 O(N) 降为 O(1)。
+    -->
+
+    <select id="getDailyPaidCounts" resultType="java.util.Map">
+        SELECT DATE_FORMAT(visit_date, '%m-%d') AS label, COUNT(*) AS cnt
+        FROM ticket_order
+        WHERE visit_date &gt;= #{startDate}
+          AND visit_date &lt;= #{endDate}
+          AND status IN ('paid', 'used')
+        GROUP BY DATE_FORMAT(visit_date, '%m-%d')
+        ORDER BY MIN(visit_date)
+    </select>
+
+    <select id="getMonthlyOrderCounts" resultType="java.util.Map">
+        SELECT DATE_FORMAT(created_at, '%Y-%m') AS label, COUNT(*) AS cnt
+        FROM ticket_order
+        WHERE created_at &gt;= #{startDate}
+          AND created_at &lt; #{endDate}
+        GROUP BY DATE_FORMAT(created_at, '%Y-%m')
+        ORDER BY MIN(created_at)
+    </select>
+
+    <select id="getSpotCurrentCounts" resultType="java.util.Map">
+        SELECT spot_id AS spotId, COUNT(*) AS cnt
+        FROM entry_record
+        WHERE DATE(entry_time) = #{date}
+          AND exit_time IS NULL
+          AND spot_id IS NOT NULL
+        GROUP BY spot_id
+    </select>
+
     <!-- 新增：分页查询订单列表 -->
     <select id="selectOrderListByPage" resultType="com.scenic.entity.TicketOrder">
         SELECT * FROM ticket_order
